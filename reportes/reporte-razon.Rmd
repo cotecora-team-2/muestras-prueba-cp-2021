@@ -48,7 +48,7 @@ resultados_tbl <- future_map_dfr(1:250, function(num){
   muestra <- muestras |> filter(num_muestra == num)
   res <- quickcountmx::ratio_estimation(muestra,
     stratum = ESTRATO, data_stratum = estratos_tbl, n_stratum = n, 
-    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 50)
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 150)
   res$num_muestra <- num
   res
 }, .options = furrr_options(seed = TRUE))
@@ -79,7 +79,7 @@ resultados_tbl <- future_map_dfr(1:250, function(num){
   muestra <- muestras_cont |> filter(num_muestra == num)
   res <- quickcountmx::ratio_estimation(muestra,
     stratum = ESTRATO, data_stratum = estratos_tbl, n_stratum = n, 
-    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 50)
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 150)
   res$num_muestra <- num
   res
 }, .options = furrr_options(seed = TRUE))
