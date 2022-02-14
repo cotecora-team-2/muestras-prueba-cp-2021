@@ -15,9 +15,6 @@ computos_tbl <-
   read_delim(
     "datos/20210802-2130_INE-CONSULTA-POPULAR-2021/20210802-2130_COMPUTOS-INE-CP2021.csv",
     delim = "|", skip = 6)  |>
-  mutate(ln = LISTA_NOMINAL_MRCP) |>
-  mutate(id_num = as.numeric(factor(CLAVE_MRCP))) |>
-  mutate(x = 1) |>
   mutate(ESTRATO = paste0(stringr::str_pad(ID_ENTIDAD, 2, pad = "0"),
                           stringr::str_pad(ID_DISTRITO_FEDERAL, 2, pad = "0")))
 
