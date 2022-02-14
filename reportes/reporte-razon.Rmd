@@ -26,11 +26,13 @@ resultados_finales <- computos_tbl |>
   summarise(suma = sum(value)) |> 
   mutate(pct_obs = 100 * suma / sum(suma)) |> 
   rename(party = name)
-muestras <- read_csv("../salida/muestras_cp_2021.csv")
-muestras_cont <- read_csv("../salida/muestras_contaminadas_cp_2021.csv")
+muestras_1200 <- read_csv("../muestras_csv/muestras_cp_2021_1200.csv")
+muestras_1800 <- read_csv("../muestras_csv/muestras_cp_2021_1800.csv")
+muestras_cont_1200 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1200.csv")
+muestras_cont_1800 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1800.csv")
 ```
 
-## Cobertura razón bootstrap
+## Ejemplo de estimación y resúmenes (1200)
 
 ```{r}
 estratos_tbl <- computos_tbl |> group_by(ESTRATO) |> count()
@@ -44,11 +46,11 @@ plan(multisession, workers = 8)
 
 
 ```{r}
-resultados_tbl <- future_map_dfr(1:250, function(num){
-  muestra <- muestras |> filter(num_muestra == num)
+resultados_tbl <- future_map_dfr(1:200, function(num){
+  muestra <- muestras_1200 |> filter(num_muestra == num)
   res <- quickcountmx::ratio_estimation(muestra,
     stratum = ESTRATO, data_stratum = estratos_tbl, n_stratum = n, 
-    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 150)
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 100)
   res$num_muestra <- num
   res
 }, .options = furrr_options(seed = TRUE))
@@ -74,12 +76,15 @@ resultados_tbl |> left_join(resultados_finales) |>
   summarise(cobertura = mean(cubre))
 ```
 
+## Ejemplo de estimación y resúmenes (1800)
+
+
 ```{r}
-resultados_tbl <- future_map_dfr(1:250, function(num){
-  muestra <- muestras_cont |> filter(num_muestra == num)
+resultados_tbl <- future_map_dfr(1:200, function(num){
+  muestra <- muestras_1800 |> filter(num_muestra == num)
   res <- quickcountmx::ratio_estimation(muestra,
     stratum = ESTRATO, data_stratum = estratos_tbl, n_stratum = n, 
-    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 150)
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 100)
   res$num_muestra <- num
   res
 }, .options = furrr_options(seed = TRUE))
@@ -105,4 +110,36 @@ resultados_tbl |> left_join(resultados_finales) |>
   summarise(cobertura = mean(cubre))
 ```
 
+## Ejemplo de estimación y resúmenes (1200): datos erróneos
+
+```{r}
+resultados_tbl <- future_map_dfr(1:200, function(num){
+  muestra <- muestras_cont_1200 |> filter(num_muestra == num)
+  res <- quickcountmx::ratio_estimation(muestra,
+    stratum = ESTRATO, data_stratum = estratos_tbl, n_stratum = n, 
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 100)
+  res$num_muestra <- num
+  res
+}, .options = furrr_options(seed = TRUE))
+```
+
+```{r, fig.width = 6, fig.height=3}
+resultados_tbl |> ggplot(aes(x = prop)) + geom_histogram() +
+  facet_wrap(~ party, scales = "free_x") +
+  geom_vline(data = resultados_finales, aes(xintercept = pct_obs), colour = "red")
+```
+
+```{r, fig.width = 10, fig.height=3}
+resultados_tbl |> ggplot(aes(x = num_muestra, ymin = prop - 2*std_error, ymax = prop + 2*std_error)) +
+  geom_linerange() +
+  facet_wrap(~ party, scales = "free_y") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs), colour = "red")
+
+```
+```{r}
+resultados_tbl |> left_join(resultados_finales) |> 
+  mutate(cubre = (pct_obs >= prop - 2 * std_error) & (pct_obs <= prop + 2 * std_error)) |> 
+  group_by(party) |> 
+  summarise(cobertura = mean(cubre))
+```
 
