@@ -1,5 +1,5 @@
 ---
-title: "Pruebas consulta popular"
+title: "Muestras de prueba del marco de Consulta 2021"
 author: "M. Anzarut, F. González, T. Ortiz"
 date: "2/12/2022"
 output: html_document
@@ -11,7 +11,9 @@ library(quickcountmx)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+Leer datos:
+
+```{r, include= FALSE, message=FALSE, warning=FALSE}
 computos_tbl <-
   read_delim(
     "../datos/20210802-2130_INE-CONSULTA-POPULAR-2021/20210802-2130_COMPUTOS-INE-CP2021.csv",
@@ -31,6 +33,17 @@ muestras_1800 <- read_csv("../muestras_csv/muestras_cp_2021_1800.csv")
 muestras_cont_1200 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1200.csv")
 muestras_cont_1800 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1800.csv")
 ```
+
+- Las muestras son aleatorias estratificadas por distrito federal,
+proporcionales al tamaño. El código se encuentra
+[aquí](https://github.com/cotecora-team-2/muestras-prueba-cp-2021).
+- Las muestras tienen exactamente la misma estructura que el [archivo de cómputos finales](https://computos.cp2021.ine.mx/votos-distrito/mapa).
+- Para las muestras normales (no contaminadas), usamos los resultados de los cómputos
+finales corregidos.
+- Para las muestras contaminadas, primero seleccionamos al azar del marco 0.29% de las
+casillas, y alteramos los nulos al total nominal menos los conteos de "Si" y "No". 
+
+
 
 ## Ejemplo de estimación y resúmenes (1200)
 
