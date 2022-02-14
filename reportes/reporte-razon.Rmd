@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Leer datos:
 
-```{r, include= FALSE, message=FALSE, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 computos_tbl <-
   read_delim(
     "../datos/20210802-2130_INE-CONSULTA-POPULAR-2021/20210802-2130_COMPUTOS-INE-CP2021.csv",
@@ -21,6 +21,13 @@ computos_tbl <-
   mutate(ln = LISTA_NOMINAL_MRCP) |>
   mutate(ESTRATO = paste0(stringr::str_pad(ID_ENTIDAD, 2, pad = "0"),
                           stringr::str_pad(ID_DISTRITO_FEDERAL, 2, pad = "0")))
+muestras_1200 <- read_csv("../muestras_csv/muestras_cp_2021_1200.csv")
+muestras_1800 <- read_csv("../muestras_csv/muestras_cp_2021_1800.csv")
+muestras_cont_1200 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1200.csv")
+muestras_cont_1800 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1800.csv")
+```
+
+```{r,echo=FALSE, include=FALSE}
 resultados_finales <- computos_tbl |> 
   select(CLAVE_MRCP, all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
   pivot_longer(all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
@@ -28,11 +35,9 @@ resultados_finales <- computos_tbl |>
   summarise(suma = sum(value)) |> 
   mutate(pct_obs = 100 * suma / sum(suma)) |> 
   rename(party = name)
-muestras_1200 <- read_csv("../muestras_csv/muestras_cp_2021_1200.csv")
-muestras_1800 <- read_csv("../muestras_csv/muestras_cp_2021_1800.csv")
-muestras_cont_1200 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1200.csv")
-muestras_cont_1800 <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1800.csv")
 ```
+
+
 
 - Las muestras son aleatorias estratificadas por distrito federal,
 proporcionales al tamaño. El código se encuentra
@@ -155,4 +160,38 @@ resultados_tbl |> left_join(resultados_finales) |>
   group_by(party) |> 
   summarise(cobertura = mean(cubre))
 ```
+
+## Ejemplo de estimación y resúmenes (1800): datos erróneos
+
+```{r}
+resultados_tbl <- future_map_dfr(1:200, function(num){
+  muestra <- muestras_cont_1800 |> filter(num_muestra == num)
+  res <- quickcountmx::ratio_estimation(muestra,
+    stratum = ESTRATO, data_stratum = estratos_tbl, n_stratum = n, 
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), B = 100)
+  res$num_muestra <- num
+  res
+}, .options = furrr_options(seed = TRUE))
+```
+
+```{r, fig.width = 6, fig.height=3}
+resultados_tbl |> ggplot(aes(x = prop)) + geom_histogram() +
+  facet_wrap(~ party, scales = "free_x") +
+  geom_vline(data = resultados_finales, aes(xintercept = pct_obs), colour = "red")
+```
+
+```{r, fig.width = 10, fig.height=3}
+resultados_tbl |> ggplot(aes(x = num_muestra, ymin = prop - 2*std_error, ymax = prop + 2*std_error)) +
+  geom_linerange() +
+  facet_wrap(~ party, scales = "free_y") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs), colour = "red")
+
+```
+```{r}
+resultados_tbl |> left_join(resultados_finales) |> 
+  mutate(cubre = (pct_obs >= prop - 2 * std_error) & (pct_obs <= prop + 2 * std_error)) |> 
+  group_by(party) |> 
+  summarise(cobertura = mean(cubre))
+```
+
 
