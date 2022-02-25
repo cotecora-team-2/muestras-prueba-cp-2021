@@ -1,0 +1,65 @@
+---
+title: "Cómputos consulta 2021"
+author: "M. Anzarut, F. González, T. Ortiz"
+date: "2/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gt)
+library(tidyverse)
+```
+
+```{r, echo=FALSE}
+computos_tbl <-
+  read_delim(
+    "../datos/20210802-2130_INE-CONSULTA-POPULAR-2021/20210802-2130_COMPUTOS-INE-CP2021.csv",
+    delim = "|", skip = 6, locale = locale(encoding = "Windows-1252"))  |>
+  mutate(ln = LISTA_NOMINAL_MRCP) |>
+  mutate(ESTRATO = paste0(stringr::str_pad(ID_ENTIDAD, 2, pad = "0"),
+                          stringr::str_pad(ID_DISTRITO_FEDERAL, 2, pad = "0"))) |> 
+  mutate(ln_std = (ln -  mean(ln))/sd(ln)) |> 
+  mutate(tipo_B = as.numeric(TIPO_MRCP=="B"))
+resultados_finales <- computos_tbl |> 
+  select(CLAVE_MRCP, all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
+  pivot_longer(all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
+  group_by(name) |> 
+  summarise(suma = sum(value)) |> 
+  mutate(pct_obs = 100 * suma / sum(suma)) |> 
+  rename(party = name) 
+computos_tbl <- computos_tbl |> 
+  mutate(prop_si = OPINION_SI / TOTAL_OPINIONES,
+         prop_no = OPINION_NO / TOTAL_OPINIONES,
+         prop_nulos = NULOS / TOTAL_OPINIONES)
+participacion <- sum(computos_tbl$TOTAL_OPINIONES) / sum(computos_tbl$LISTA_NOMINAL_MRCP)
+resultados_finales <- resultados_finales |> 
+  bind_rows(tibble(party = "part", suma = 0, pct_obs = 100 * participacion))
+```
+
+```{r, fig.width= 4, fig.height=3}
+ggplot(computos_tbl, aes(x = OPINION_NO, y = NULOS)) + geom_point() +
+  scale_x_sqrt() + scale_y_sqrt()
+```
+
+```{r}
+filter(computos_tbl, NULOS > 900) |> 
+  select(CLAVE_MRCP, ENTIDAD, OPINION_SI:TOTAL_OPINIONES, LISTA_NOMINAL_MRCP) |> gt()
+```
+
+
+```{r, fig.width=4, fig.height=3}
+ggplot(computos_tbl, aes(x = OPINION_SI, y = NULOS)) + geom_point()
+```
+```{r}
+si_nulos_tbl <- filter(computos_tbl, abs(OPINION_SI - NULOS) < 1, NULOS > 0, NULOS > 20) |> 
+  select(OPINION_SI:TOTAL_OPINIONES, LISTA_NOMINAL_MRCP, OBSERVACIONES) 
+nrow(si_nulos_tbl)
+```
+
+
+```{r}
+si_nulos_tbl |> arrange(desc(TOTAL_OPINIONES)) |> gt()
+```
+
+

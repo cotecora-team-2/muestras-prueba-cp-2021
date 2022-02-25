@@ -1,0 +1,180 @@
+---
+title: "Pruebas consulta popular"
+author: "M. Anzarut, F. González, T. Ortiz"
+date: "2/12/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(quickcountmx)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+computos_tbl <-
+  read_delim(
+    "../datos/20210802-2130_INE-CONSULTA-POPULAR-2021/20210802-2130_COMPUTOS-INE-CP2021.csv",
+    delim = "|", skip = 6)  |>
+  mutate(ln = LISTA_NOMINAL_MRCP) |>
+  mutate(ESTRATO = paste0(stringr::str_pad(ID_ENTIDAD, 2, pad = "0"),
+                          stringr::str_pad(ID_DISTRITO_FEDERAL, 2, pad = "0"))) |> 
+  mutate(ln_std = (ln -  mean(ln))/sd(ln)) |> 
+  mutate(tipo_B = as.numeric(TIPO_MRCP=="B"))
+
+## filtro
+nrow(computos_tbl)
+computos_f_tbl <- computos_tbl |> filter(NULOS < 950)
+nrow(computos_tbl)
+##
+
+resultados_finales <- computos_f_tbl |> 
+  select(CLAVE_MRCP, all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
+  pivot_longer(all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
+  group_by(name) |> 
+  summarise(suma = sum(value)) |> 
+  mutate(pct_obs = 100 * suma / sum(suma)) |> 
+  rename(party = name) 
+participacion <- sum(computos_tbl$TOTAL_OPINIONES) / sum(computos_tbl$LISTA_NOMINAL_MRCP)
+resultados_finales <- resultados_finales |> 
+  bind_rows(tibble(party = "part", suma = 0, pct_obs = 100 * participacion))
+muestras <- read_csv("../muestras_csv/muestras_cp_2021_1200.csv")
+muestras_cont <- read_csv("../muestras_csv/muestras_contaminadas_cp_2021_1200.csv")
+```
+
+## Cobertura BNH
+
+```{r}
+estratos_tbl <- computos_tbl |> group_by(ESTRATO) |> count()
+estratos_tbl
+```
+
+```{r}
+#library(furrr)
+#plan(multisession, workers = 3)
+```
+
+```{r}
+num_sims <- 100
+```
+
+
+```{r, message=FALSE, warning = FALSE, include = FALSE}
+resultados_lst <- parallel::mclapply(1:num_sims, function(num){
+  muestra <- muestras |> filter(num_muestra == num)
+  res <- quickcountmx::hb_estimation(muestra,
+    stratum = ESTRATO, id_station = CLAVE_MRCP, sampling_frame = computos_tbl, 
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")), 
+    covariates = all_of(c("tipo_B")),
+    adapt_delta = 0.90, max_treedepth = 12, num_iter = 300, 
+    model = "mlogit-corr", nominal_max = 3000, part = TRUE, prop_obs = 0.99) |> 
+    pluck(1)
+  res$num_muestra <- num
+  res
+}, mc.cores = 3)
+```
+
+
+```{r, message=FALSE, warning = FALSE, include = FALSE}
+resultados_tbl <- bind_rows(resultados_lst)
+```
+
+
+
+```{r}
+write_rds(resultados_tbl, "resultados-nbh-3.rds")
+#resultados_tbl <- read_rds("resultado-nbh-2.rds")
+#resultados_tbl <- read_rds("resultado-nbh.rds")
+#resultados_tbl<- resultados_tbl |> 
+#  mutate(num_muestra = rep(1:250, each = 3))
+```
+
+
+```{r, fig.width = 6, fig.height=3}
+resultados_tbl |> ggplot(aes(x = median)) + geom_histogram() +
+  facet_wrap(~ party, scales = "free_x") +
+  geom_vline(data = resultados_finales, aes(xintercept = pct_obs/100), colour = "red")
+```
+
+
+```{r}
+resultados_tbl |> 
+  ggplot(aes(x = num_muestra, ymin = inf, ymax = sup)) +
+  geom_linerange() +
+  facet_wrap(~ party, scales = "free_y") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs/100), colour = "red")
+
+```
+```{r}
+resultados_tbl |> left_join(resultados_finales) |> 
+  mutate(cubre = ((pct_obs/100) >= inf) & ((pct_obs/100) <= sup)) |> 
+  group_by(party) |>  
+  summarise(cobertura = mean(cubre))
+```
+```{r, message=FALSE, warning=FALSE, include = FALSE}
+estratos_tbl <- computos_tbl |> count(ESTRATO)
+resultados_r_tbl <- map_dfr(1:num_sims, function(num){
+  muestra <- muestras |> filter(num_muestra == num)
+  res <- quickcountmx::ratio_estimation(muestra,
+    stratum = ESTRATO, data_stratum = estratos_tbl,
+    n_stratum = n,
+    parties = any_of(c("OPINION_SI", "OPINION_NO", "NULOS")))
+  res$num_muestra <- num
+  res
+})
+```
+
+```{r, fig.width = 10, fig.height=3}
+resultados_r_tbl |> 
+  ggplot(aes(x = num_muestra, ymin = prop - 2*std_error, 
+             ymax = prop + 2*std_error)) +
+  geom_linerange() +
+  facet_wrap(~ party, scales = "free_y") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs), colour = "red")
+
+```
+
+
+```{r}
+res_r_2_tbl <- resultados_r_tbl |> 
+  mutate(inf = (prop - 2 * std_error)/100, sup = (prop + 2 * std_error)/100) |>
+  mutate(prop = prop / 100) |> 
+  select(party, prop, num_muestra, inf, sup) |> 
+  mutate(metodo = "razon") 
+res_tbl <- bind_rows(res_r_2_tbl, resultados_tbl |> rename(prop = median) |> 
+                       select(party, prop, num_muestra, inf, sup) |> mutate(metodo = "hbn"))
+```
+
+```{r}
+ggplot(res_tbl |> left_join(resultados_finales), 
+       aes(x = num_muestra, ymin = inf, ymax = sup)) +
+  geom_linerange() +
+  facet_grid(party ~ metodo, scales = "free") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs/100), colour = "red") 
+```
+
+Unión
+
+```{r}
+union_tbl <- res_tbl |> ungroup() |> group_by(party, num_muestra) |> 
+  summarise(inf = min(inf, na.rm = T), sup = max(sup, na.rm = T)) |> ungroup() |> 
+  mutate(metodo = "union")
+res_union_tbl <- bind_rows(union_tbl, res_tbl |> select(-prop))
+```
+
+```{r}
+ggplot(res_union_tbl |> left_join(resultados_finales), 
+       aes(x = num_muestra, ymin = inf, ymax = sup)) +
+  geom_linerange() +
+  facet_grid(party ~ metodo, scales = "free") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs/100), colour = "red") 
+```
+
+
+```{r}
+res_union_tbl |> left_join(resultados_finales) |> 
+  mutate(cubre = ((pct_obs/100) >= inf) & ((pct_obs/100) <= sup)) |> 
+  group_by(party, metodo) |>  
+  summarise(cobertura = mean(cubre)) |> 
+  arrange(metodo)
+```
