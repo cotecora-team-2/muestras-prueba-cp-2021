@@ -1,5 +1,5 @@
 ---
-title: "Pruebas consulta popular"
+title: "Pruebas consulta popular - 1200"
 author: "M. Anzarut, F. González, T. Ortiz"
 date: "2/12/2022"
 output: html_document
@@ -71,7 +71,7 @@ resultados_lst <- parallel::mclapply(1:num_sims, function(num){
     pluck(1)
   res$num_muestra <- num
   res
-}, mc.cores = 3)
+}, mc.cores = 5)
 ```
 
 
@@ -82,7 +82,7 @@ resultados_tbl <- bind_rows(resultados_lst)
 
 
 ```{r}
-write_rds(resultados_tbl, "resultados-nbh-3.rds")
+write_rds(resultados_tbl, "resultados-nbh-1-1200.rds")
 #resultados_tbl <- read_rds("resultado-nbh-2.rds")
 #resultados_tbl <- read_rds("resultado-nbh.rds")
 #resultados_tbl<- resultados_tbl |> 
