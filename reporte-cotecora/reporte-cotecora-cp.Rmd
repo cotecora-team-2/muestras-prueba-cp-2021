@@ -1,0 +1,174 @@
+---
+title: "Untitled"
+author: "M. Anzarut, F. González, T. Ortiz"
+date: "2/26/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gt)
+```
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE, include=FALSE}
+# Leer muestras
+nombres <- list.files("../resultados_csv/")
+resultados_int_tbl <- map_df(nombres, function(nombre){
+  muestras_1200 <- read_csv(
+    paste0("../resultados_csv/", nombre, "/resultados_muestras_cp_2021_1200.csv"))
+  muestras_1200 <- muestras_1200 |> mutate(tam_muestra = 1200, nombre = nombre, tipo = "marco-oficial")                     
+  muestras_1800 <- read_csv(
+    paste0("../resultados_csv/", nombre, "/resultados_muestras_cp_2021_1800.csv"))
+  muestras_1800 <- muestras_1800 |> mutate(tam_muestra = 1800, nombre = nombre, tipo = "marco-oficial")
+  muestras_1200_c <- read_csv( 
+    paste0("../resultados_csv/", nombre, "/resultados_muestras_contaminadas_cp_2021_1200.csv"))
+  muestras_1200_c <- muestras_1200_c |> mutate(tam_muestra = 1200, nombre = nombre, tipo = "marco-contaminado")
+  muestras_1800_c <- read_csv(
+    paste0("../resultados_csv/", nombre, "/resultados_muestras_contaminadas_cp_2021_1800.csv"))
+  muestras_1800_c <- muestras_1800_c |> mutate(tam_muestra = 1800, nombre = nombre, tipo = "marco-contaminado")
+  bind_rows(muestras_1200, muestras_1800, muestras_1200_c, muestras_1800_c) |> 
+    mutate(opc = tolower(opc))
+})
+union_tbl <- resultados_int_tbl |> 
+  group_by(num_muestra, opc, tam_muestra, tipo) |> 
+  summarise(LI = min(LI), LS = max(LS), .groups = "drop") |> 
+  mutate(nombre = "Unión")
+resultados_int_tbl <- resultados_int_tbl |> bind_rows(union_tbl)
+```
+
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE, include=FALSE}
+computos_tbl <-
+  read_delim(
+    "../datos/20210802-2130_INE-CONSULTA-POPULAR-2021/20210802-2130_COMPUTOS-INE-CP2021.csv",
+    delim = "|", skip = 6)  |>
+  mutate(ln = LISTA_NOMINAL_MRCP) |>
+  mutate(ESTRATO = paste0(stringr::str_pad(ID_ENTIDAD, 2, pad = "0"),
+                          stringr::str_pad(ID_DISTRITO_FEDERAL, 2, pad = "0")))
+
+```
+
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE, include=FALSE}
+calcular_computos <- function(computos_tbl, tipo = ""){
+  resultados_finales <- computos_tbl |> 
+    select(CLAVE_MRCP, all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
+    pivot_longer(all_of(c("OPINION_SI", "OPINION_NO", "NULOS"))) |> 
+    group_by(name) |> 
+    summarise(suma = sum(value)) |> 
+    mutate(pct_obs = 100 * suma / sum(suma)) |> 
+    rename(party = name) 
+  participacion <- sum(computos_tbl$TOTAL_OPINIONES) / sum(computos_tbl$LISTA_NOMINAL_MRCP)
+  resultados_finales <- resultados_finales |> 
+    bind_rows(tibble(party = "part", suma = 0, pct_obs = 100 * participacion)) |> 
+    select(-suma) |> rename(opc = party) |> mutate(tipo_computo = tipo)
+  resultados_finales |> mutate(n_marco = nrow(computos_tbl)) |> 
+    mutate(opc = tolower(opc))
+}
+```
+
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE, include=FALSE}
+resultados_finales <- calcular_computos(computos_tbl, "marco-original")
+computos_f_tbl <- computos_tbl |> filter(NULOS < 950)
+resultados_finales_f <- calcular_computos(computos_f_tbl, "marco-filtrado-1")
+computos_ff_tbl <- computos_tbl |> filter(NULOS < 100)
+resultados_finales_ff <- calcular_computos(computos_ff_tbl, "marco-filtrado-2")
+
+res_computos_tbl <- bind_rows(resultados_finales, resultados_finales_f, resultados_finales_ff)
+```
+
+
+## Escenarios de cómputos
+
+
+```{r, echo = FALSE}
+n_marco_tbl <- select(res_computos_tbl, tipo_computo, n_marco) |> unique() |> 
+  pivot_wider(names_from = tipo_computo, values_from = n_marco)
+res_computos_tbl |> 
+  mutate(pct_obs = round(pct_obs, 3)) |> 
+  select(-n_marco) |> 
+  pivot_wider(names_from = tipo_computo, values_from = pct_obs) |> 
+  bind_rows(n_marco_tbl |> mutate(opc = "n_marco")) |> 
+  gt() |> fmt_number(columns = contains("marco"), rows = 5, drop_trailing_zeros = TRUE)
+```
+
+
+## Coberturas
+
+Escenario 1: Resultados de cómputos sin modificaciones
+
+Coberturas correctas (algo bajas para nulos)
+
+```{r}
+resumen_cobertura_tbl <- resultados_int_tbl |> 
+  left_join(filter(res_computos_tbl, tipo_computo == "marco-original")) |> 
+  mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop")
+ggplot(resumen_cobertura_tbl, 
+       aes(x = opc, y = cobertura, colour = nombre, group = nombre)) +
+  geom_jitter(width = 0.0, height = 0) + geom_line() + facet_wrap(tipo~tam_muestra) +
+  geom_hline(yintercept = 0.95, colour = "red")
+```
+
+Escenario 2: Resultados de cómputos quitando 3 casillas
+
+Coberturas correctas (algo bajas para nulos)
+
+```{r}
+resumen_cobertura_tbl <- resultados_int_tbl |> 
+  left_join(filter(res_computos_tbl, tipo_computo == "marco-filtrado-1")) |> 
+  mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop")
+ggplot(resumen_cobertura_tbl, 
+       aes(x = opc, y = cobertura, colour = nombre, group = nombre)) +
+  geom_jitter(width = 0.0, height = 0) + geom_line() + facet_wrap(tipo~tam_muestra) +
+  geom_hline(yintercept = 0.95, colour = "red")
+```
+
+
+
+Escenario 3: Resultados de cómputos quitando 26 casillas
+
+```{r}
+resumen_cobertura_tbl <- resultados_int_tbl |> 
+  left_join(filter(res_computos_tbl, tipo_computo == "marco-filtrado-2")) |> 
+  mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop")
+ggplot(resumen_cobertura_tbl, 
+       aes(x = opc, y = cobertura, colour = nombre, group = nombre)) +
+  geom_jitter(width = 0.0, height = 0) + geom_line() + facet_wrap(tipo~tam_muestra) +
+  geom_hline(yintercept = 0.95, colour = "red")
+```
+
+## Tamaños de intervalos
+
+```{r}
+resumen_cobertura_tbl <- resultados_int_tbl |> 
+  filter(tipo == "marco-oficial") |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(error = mean(LS - LI) / 2, .groups = "drop")
+resumen_cobertura_tbl |> select(opc, tam_muestra, nombre, tipo, error) |> 
+  mutate(error = round(error, 2)) |> 
+  pivot_wider(names_from = nombre, values_from = error) |> 
+  mutate(error_max = pmax(Anzarut, Rodriguez, Romero, Rueda)) |> 
+  mutate(Incremento_pct = round(100 * (Unión - error_max)/error_max,1)) |> 
+  select(-error_max) |> gt()
+```
+
+```{r}
+resumen_cobertura_tbl <- resultados_int_tbl |> 
+  filter(tipo == "marco-contaminado") |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(error = mean(LS - LI) / 2, .groups = "drop")
+resumen_cobertura_tbl |> select(opc, tam_muestra, nombre, tipo, error) |> 
+  mutate(error = round(error, 2)) |> 
+  pivot_wider(names_from = nombre, values_from = error) |> 
+  mutate(error_max = pmax(Anzarut, Rodriguez, Romero, Rueda)) |> 
+  mutate(Incremento_pct = round(100 * (Unión - error_max)/error_max,1)) |> 
+  select(-error_max) |> gt()
+```
