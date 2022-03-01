@@ -17,7 +17,7 @@ Buscamos estimar cómputos finales bajo tres escenarios de correcciones de cómp
 2. Escenario **esperado**: cómputos oficiales sin tres casillas con exceso de nulos (950 o más nulos).
 3. Escenario **sobre-corregido**: cómputos oficiales sin tres casillas con exceso de nulos (950 o más nulos), y sin otras 42 casillas tentativas para corrección (42 casillas con más de 50 nulos). 
 
-Esto cubre tres escenarios factible de posibles resultados finales, aunque no cubren todas las
+Esto cubre tres escenarios factibles de posibles resultados finales, aunque no cubren todas las
 posibilidades de recuento o ajuste posterior al conteo rápido.
 
 Adicionalmente, consideramos dos escenarios para el proceso generador de la muestra del conteo rápido:
@@ -40,7 +40,7 @@ para obtener intervalos más angostos con la cobertura estipulada.
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 library(tidyverse)
 library(ggthemes)
 old <- theme_set(theme_bw())
@@ -124,7 +124,7 @@ res_computos_tbl <- bind_rows(resultados_finales, resultados_finales_f, resultad
 
 ### Descripción de intervalos 
 
-Comparamos la mediana de la mitad del tamaño de los intervalos bajo cada método,
+Comparamos la media de la mitad del tamaño de los intervalos bajo cada método,
 tamaño de muestra, y tipo de marco. Incluímos también la unión de las
 cuatro métodos. *Incremento_pct* indica el incremento relativo del tamaño de la unión
 comparado con el intervalo más ancho de los métodos individuales:
