@@ -53,6 +53,8 @@ computos_contam_tbl <- computos_tbl |>
   mutate(NULOS = ifelse(contaminar, LISTA_NOMINAL_MRCP - OPINION_SI - OPINION_NO, NULOS)) |>
   select(-contaminar)
 
+write_csv(computos_contam_tbl, file = "datos/marco_contaminado.csv")
+
 set.seed(8999)
 frac <- 1200 / nrow(computos_tbl)
 muestras_contaminadas_tbl <- map_df(1:200, function(num_muestra){
