@@ -1,13 +1,52 @@
 ---
-title: "Untitled"
+title: "Pruebas de intervalos para Consulta Popular 2021"
 author: "M. Anzarut, F. González, T. Ortiz"
 date: "2/26/2022"
 output: html_document
 ---
 
+### Objetivos del reporte {-}
+
+En este reporte examinamos el desempeño de distintos métodos 
+para producir intervalos de estimación para 
+muestras del Conteo Rápido 2021 bajo varios escenarios.
+
+Buscamos estimar cómputos finales bajo tres escenarios de correcciones de cómputos:
+
+1. Escenario **2021**: cómputos oficiales de 2021.
+2. Escenario **esperado**: cómputos oficiales sin tres casillas con exceso de nulos (950 o más nulos).
+3. Escenario **sobre-corregido**: cómputos oficiales sin tres casillas con exceso de nulos (950 o más nulos), y sin otras 42 casillas tentativas para corrección (42 casillas con más de 50 nulos). 
+
+Esto cubre tres escenarios factibles de posibles resultados finales, aunque no cubren todas las
+posibilidades de recuento o ajuste posterior al conteo rápido.
+
+Adicionalmente, consideramos dos escenarios para el proceso generador de la muestra del conteo rápido:
+
+1. Muestras esperadas: Muestras de cómputos oficiales sin modificaciones.
+2. Muestras contaminadas: Muestras de cómputos oficiales donde el marco fue contaminado
+para presentar exceso de nulos en alrededor de 0.32% de las casilas (alrededor de 180 casillas).
+
+Nuestro objetivo es considerar los dos procesos de muestreo en cada uno de los
+tres escenarios de cómputos y verificar cobertura y ancho de intervalos
+
+#### Resumen de recomendaciones {-}
+
+Los cuatro métodos básicos tienen algunas subcoberturas en distintos escenarios. La unión de intervalos está por arriba de la cobertura estipulada (95%) en prácticamente todos
+los tres escenarios y y dos procesos generadores de muestras considerados. 
+La participación puede ser tratada de distinta forma
+para obtener intervalos más angostos con la cobertura estipulada.
+
+
+
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 library(tidyverse)
+library(ggthemes)
+old <- theme_set(theme_bw())
+ggthemes_data$colorblind  <- ggthemes_data$colorblind |> 
+  filter(name != "Yellow" & name!= "Blue" & name!= "Reddish Purple")
+colores_val <- ggthemes_data$colorblind$value
 library(gt)
 ```
 
@@ -35,6 +74,8 @@ union_tbl <- resultados_int_tbl |>
   summarise(LI = min(LI), LS = max(LS), .groups = "drop") |> 
   mutate(nombre = "Unión")
 resultados_int_tbl <- resultados_int_tbl |> bind_rows(union_tbl)
+resultados_int_tbl <- mutate(resultados_int_tbl,
+  tipo = ifelse(tipo == "marco-oficial", "muestra-esperado", "muestra-contaminada"))
 ```
 
 
@@ -46,6 +87,7 @@ computos_tbl <-
   mutate(ln = LISTA_NOMINAL_MRCP) |>
   mutate(ESTRATO = paste0(stringr::str_pad(ID_ENTIDAD, 2, pad = "0"),
                           stringr::str_pad(ID_DISTRITO_FEDERAL, 2, pad = "0")))
+computos_contam_tbl <- read_csv("../datos/marco_contaminado.csv")
 
 ```
 
@@ -69,15 +111,135 @@ calcular_computos <- function(computos_tbl, tipo = ""){
 ```
 
 
-```{r, echo=FALSE, message = FALSE, warning = FALSE, include=FALSE}
-resultados_finales <- calcular_computos(computos_tbl, "marco-original")
+```{r calcular-props, echo=FALSE, message = FALSE, warning = FALSE, include=FALSE}
+resultados_finales <- calcular_computos(computos_tbl, "marco-2021")
 computos_f_tbl <- computos_tbl |> filter(NULOS < 950)
-resultados_finales_f <- calcular_computos(computos_f_tbl, "marco-filtrado-1")
-computos_ff_tbl <- computos_tbl |> filter(NULOS < 100)
-resultados_finales_ff <- calcular_computos(computos_ff_tbl, "marco-filtrado-2")
-
+resultados_finales_f <- calcular_computos(computos_f_tbl, "marco-esperado")
+computos_ff_tbl <- computos_tbl |> filter(NULOS < 50)
+resultados_finales_ff <- calcular_computos(computos_ff_tbl, "marco-sobre-corregido")
+resultados_contam <- calcular_computos(computos_contam_tbl |> 
+                                         mutate(TOTAL_OPINIONES = OPINION_NO + OPINION_SI + NULOS), "marco-contaminado")
 res_computos_tbl <- bind_rows(resultados_finales, resultados_finales_f, resultados_finales_ff)
 ```
+
+### Descripción de intervalos 
+
+Comparamos la media de la mitad del tamaño de los intervalos bajo cada método,
+tamaño de muestra, y tipo de marco. Incluímos también la unión de las
+cuatro métodos. *Incremento_pct* indica el incremento relativo del tamaño de la unión
+comparado con el intervalo más ancho de los métodos individuales:
+
+```{r, echo = FALSE}
+resumen_tamano_tbl <- resultados_int_tbl |> 
+  filter(tipo == "muestra-esperado") |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(error = mean(LS - LI) / 2, .groups = "drop") |> 
+  arrange(opc, tipo, tam_muestra)
+resumen_tamano_tbl |> select(opc, tam_muestra, nombre, tipo, error) |> 
+  mutate(error = round(error, 2)) |> 
+  pivot_wider(names_from = nombre, values_from = error) |> 
+  mutate(error_max = pmax(Anzarut, Rodriguez, Romero, Rueda)) |> 
+  mutate(Incremento_pct = round(100 * (Unión - error_max)/error_max,1)) |> 
+  select(-error_max) |> gt()
+```
+
+
+
+
+
+```{r, echo = FALSE}
+resumen_tamano_tbl <- resultados_int_tbl |> 
+  filter(tipo == "muestra-contaminada") |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(error = mean(LS - LI) / 2, .groups = "drop") |> 
+  arrange(opc, tipo, tam_muestra)
+resumen_tamano_tbl |> select(opc, tam_muestra, nombre, tipo, error) |> 
+  mutate(error = round(error, 2)) |> 
+  pivot_wider(names_from = nombre, values_from = error) |> 
+  mutate(error_max = pmax(Anzarut, Rodriguez, Romero, Rueda)) |> 
+  mutate(Incremento_pct = round(100 * (Unión - error_max)/error_max,1)) |> 
+  select(-error_max) |> gt()
+```
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE, include = FALSE}
+orden_muestras_tbl <- resultados_int_tbl |> 
+  filter(opc == "nulos") |> 
+  mutate(mitad = (LI + LS)/2) |> 
+  group_by(num_muestra, tam_muestra, tipo) |> 
+  summarise(media_mitad = mean(mitad)) |> 
+  group_by(tam_muestra, tipo) |> 
+  mutate(orden_muestra = rank(media_mitad)) |> 
+  select(num_muestra, tam_muestra, tipo, orden_muestra) |> 
+  ungroup()
+```
+#### Intervalos individuales para muestra esperada {-}
+
+```{r, echo = FALSE, include = FALSE, fig.width = 8}
+g_1 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "nulos", tipo == "muestra-esperado"), 
+       aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre) + 
+  scale_color_manual(values = rev(colores_val))
+```
+
+```{r, echo = FALSE, include = FALSE, fig.width = 8}
+g_2 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "opinion_si", tipo == "muestra-esperado"), 
+       aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+```{r, echo = FALSE, include = FALSE, fig.width = 8}
+g_3 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "opinion_no", tipo == "muestra-esperado"), 
+       aes(x = orden_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+
+```{r, echo = FALSE, fig.height=12, fig.width = 7}
+library(patchwork)
+g_1 / g_2 / g_3
+```
+
+#### Intervalos individuales para muestra contaminada {-}
+
+
+```{r, echo = FALSE, include = FALSE}
+g_1 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "nulos", tipo == "muestra-contaminada"), 
+       aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+
+```{r, echo = FALSE, include = FALSE}
+g_2 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "opinion_si", tipo == "muestra-contaminada"), 
+       aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+```{r, echo = FALSE, include = FALSE}
+g_3 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "opinion_no", tipo == "muestra-contaminada"), 
+       aes(x = orden_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+
+```{r, echo = FALSE, fig.height=12, fig.width = 7}
+library(patchwork)
+g_1 / g_2 / g_3
+```
+
+
 
 
 ## Escenarios de cómputos
@@ -95,80 +257,53 @@ res_computos_tbl |>
 ```
 
 
-## Coberturas
+## Coberturas: escenario marco-2021
 
-Escenario 1: Resultados de cómputos sin modificaciones
-
-Coberturas correctas (algo bajas para nulos)
 
 ```{r}
 resumen_cobertura_tbl <- resultados_int_tbl |> 
-  left_join(filter(res_computos_tbl, tipo_computo == "marco-original")) |> 
+  left_join(filter(res_computos_tbl, tipo_computo == "marco-2021")) |> 
   mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
   group_by(opc, tam_muestra, nombre, tipo) |> 
   summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop")
 ggplot(resumen_cobertura_tbl, 
        aes(x = opc, y = cobertura, colour = nombre, group = nombre)) +
   geom_jitter(width = 0.0, height = 0) + geom_line() + facet_wrap(tipo~tam_muestra) +
-  geom_hline(yintercept = 0.95, colour = "red")
+  geom_hline(yintercept = 0.95, colour = "red") + 
+  scale_color_manual(values = rev(colores_val))
 ```
 
-Escenario 2: Resultados de cómputos quitando 3 casillas
+## Coberturas: escenario marco esperado (-3 casillas)
 
-Coberturas correctas (algo bajas para nulos)
 
 ```{r}
 resumen_cobertura_tbl <- resultados_int_tbl |> 
-  left_join(filter(res_computos_tbl, tipo_computo == "marco-filtrado-1")) |> 
+  left_join(filter(res_computos_tbl, tipo_computo == "marco-esperado")) |> 
   mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
   group_by(opc, tam_muestra, nombre, tipo) |> 
   summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop")
 ggplot(resumen_cobertura_tbl, 
        aes(x = opc, y = cobertura, colour = nombre, group = nombre)) +
   geom_jitter(width = 0.0, height = 0) + geom_line() + facet_wrap(tipo~tam_muestra) +
-  geom_hline(yintercept = 0.95, colour = "red")
+  geom_hline(yintercept = 0.95, colour = "red") + 
+  scale_color_manual(values = rev(colores_val))
 ```
 
 
+## Coberturas: escenario sobre corregido (-45 casillas)
 
-Escenario 3: Resultados de cómputos quitando 26 casillas
 
 ```{r}
 resumen_cobertura_tbl <- resultados_int_tbl |> 
-  left_join(filter(res_computos_tbl, tipo_computo == "marco-filtrado-2")) |> 
+  left_join(filter(res_computos_tbl, tipo_computo == "marco-sobre-corregido")) |> 
   mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
   group_by(opc, tam_muestra, nombre, tipo) |> 
   summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop")
 ggplot(resumen_cobertura_tbl, 
        aes(x = opc, y = cobertura, colour = nombre, group = nombre)) +
   geom_jitter(width = 0.0, height = 0) + geom_line() + facet_wrap(tipo~tam_muestra) +
-  geom_hline(yintercept = 0.95, colour = "red")
+  geom_hline(yintercept = 0.95, colour = "red") + 
+  scale_color_manual(values = rev(colores_val))
 ```
 
-## Tamaños de intervalos
 
-```{r}
-resumen_cobertura_tbl <- resultados_int_tbl |> 
-  filter(tipo == "marco-oficial") |> 
-  group_by(opc, tam_muestra, nombre, tipo) |> 
-  summarise(error = mean(LS - LI) / 2, .groups = "drop")
-resumen_cobertura_tbl |> select(opc, tam_muestra, nombre, tipo, error) |> 
-  mutate(error = round(error, 2)) |> 
-  pivot_wider(names_from = nombre, values_from = error) |> 
-  mutate(error_max = pmax(Anzarut, Rodriguez, Romero, Rueda)) |> 
-  mutate(Incremento_pct = round(100 * (Unión - error_max)/error_max,1)) |> 
-  select(-error_max) |> gt()
-```
-
-```{r}
-resumen_cobertura_tbl <- resultados_int_tbl |> 
-  filter(tipo == "marco-contaminado") |> 
-  group_by(opc, tam_muestra, nombre, tipo) |> 
-  summarise(error = mean(LS - LI) / 2, .groups = "drop")
-resumen_cobertura_tbl |> select(opc, tam_muestra, nombre, tipo, error) |> 
-  mutate(error = round(error, 2)) |> 
-  pivot_wider(names_from = nombre, values_from = error) |> 
-  mutate(error_max = pmax(Anzarut, Rodriguez, Romero, Rueda)) |> 
-  mutate(Incremento_pct = round(100 * (Unión - error_max)/error_max,1)) |> 
-  select(-error_max) |> gt()
-```
