@@ -360,3 +360,87 @@ ggplot(resumen_cobertura_tbl |> filter(tipo == "muestra-contaminada"),
   geom_vline(xintercept = 0.95, colour = "black") +
   labs(title="Muestra contaminada")
 ```
+
+## Escenario marco esperado (-3 casillas), eliminando atípicos extremos
+
+```{r, echo = FALSE, include = FALSE}
+muestras_1200_fa <- read_csv("../muestras_csv/muestras_cp_2021_1200.csv") |> 
+  mutate(atipico = NULOS > 900) |> mutate(tam_muestra = 1200) |> 
+  group_by(tam_muestra, num_muestra) |> 
+  summarise(sin_atipicos = all(!atipico)) |> 
+  filter(sin_atipicos)
+muestras_1800_fa <- read_csv("../muestras_csv/muestras_cp_2021_1800.csv") |> 
+  mutate(atipico = NULOS > 900) |> mutate(tam_muestra = 1800) |> 
+  group_by(tam_muestra, num_muestra) |> 
+  summarise(sin_atipicos = all(!atipico)) |> 
+  filter(sin_atipicos)
+
+```
+
+```{r}
+resumen_cobertura_tbl <- resultados_int_tbl |> 
+  filter(tipo == "muestra-esperado") |> 
+  semi_join(bind_rows(muestras_1200_fa, muestras_1800_fa)) |> 
+  left_join(filter(res_computos_tbl, tipo_computo == "marco-esperado")) |> 
+  mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop")
+ggplot(resumen_cobertura_tbl, 
+       aes(x = opc, y = cobertura, colour = nombre, group = nombre)) +
+  geom_jitter(width = 0.0, height = 0) + geom_line() + facet_wrap(tipo~tam_muestra) +
+  geom_hline(yintercept = 0.95, colour = "red") + 
+  scale_color_manual(values = rev(colores_val)) + ylim(0.25, 1)
+```
+
+
+```{r, echo = FALSE}
+resumen_tamano_tbl <- resultados_int_tbl |> 
+  filter(tipo == "muestra-esperado") |> 
+  semi_join(bind_rows(muestras_1200_fa, muestras_1800_fa)) |> 
+  group_by(opc, tam_muestra, nombre, tipo) |> 
+  summarise(error = mean(LS - LI) / 2, .groups = "drop") |> 
+  arrange(opc, tipo, tam_muestra)
+resumen_tamano_tbl |> select(opc, tam_muestra, nombre, tipo, error) |> 
+  mutate(error = round(error, 2)) |> 
+  pivot_wider(names_from = nombre, values_from = error) |> 
+  mutate(error_max = pmax(Anzarut, Rodriguez, Romero, Rueda)) |> 
+  mutate(Incremento_pct = round(100 * (Unión - error_max)/error_max,1)) |> 
+  select(-error_max) |> gt()
+```
+
+
+```{r, echo = FALSE, include = FALSE}
+g_1 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "nulos", tipo == "muestra-esperado") |>  
+      semi_join(bind_rows(muestras_1200_fa, muestras_1800_fa)), 
+       aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+
+```{r, echo = FALSE, include = FALSE}
+g_2 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "opinion_si", tipo == "muestra-esperado") |>  
+      semi_join(bind_rows(muestras_1200_fa, muestras_1800_fa)), 
+       aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra  ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+```{r, echo = FALSE, include = FALSE}
+g_3 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "opinion_no", tipo == "muestra-esperado") |>  
+      semi_join(bind_rows(muestras_1200_fa, muestras_1800_fa)), 
+       aes(x = orden_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val))
+```
+
+```{r, echo = FALSE, fig.height=12, fig.width = 7}
+library(patchwork)
+g_1 / g_2 / g_3
+```
+
+
