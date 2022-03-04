@@ -33,8 +33,6 @@ tres escenarios de cómputos y verificar cobertura y ancho de intervalos
 
 Los cuatro métodos básicos tienen algunas subcoberturas en distintos escenarios. La unión de intervalos está por arriba de la cobertura estipulada (95%) en prácticamente todos
 los tres escenarios y y dos procesos generadores de muestras considerados. 
-La participación puede ser tratada de distinta forma
-para obtener intervalos más angostos con la cobertura estipulada.
 
 
 
@@ -204,9 +202,18 @@ g_3 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |>
   labs(title="Opinión no")
 ```
 
+```{r, echo = FALSE, include = FALSE, fig.width = 8}
+g_4 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "part", tipo == "muestra-esperado"), 
+       aes(x = orden_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val)) +
+  labs(title="Participación")
+```
 ```{r, echo = FALSE, fig.height=12, fig.width = 7}
 library(patchwork)
-g_1 / g_2 / g_3
+g_1 / g_2 / g_3 / g_4
 ```
 
 #### Intervalos individuales para muestra contaminada {-}
@@ -241,9 +248,19 @@ g_3 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |>
   labs(title="Opinión no")
 ```
 
+```{r, echo = FALSE, include = FALSE}
+g_4 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "part", tipo == "muestra-contaminada"), 
+       aes(x = orden_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra + tipo ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val)) +
+  labs(title="Participación")
+```
+
 ```{r, echo = FALSE, fig.height=12, fig.width = 7}
 library(patchwork)
-g_1 / g_2 / g_3
+g_1 / g_2 / g_3 / g_4
 ```
 
 
@@ -313,54 +330,6 @@ ggplot(resumen_cobertura_tbl,
   scale_color_manual(values = rev(colores_val))
 ```
 
-
-### Integración del intervalo para participación
-
-* Cuantiles 40_60 es tomar el cuantil 0.40 de los 4 límites inferiores y tomar el cuantil 0.60 de los 4 límites superiores
-* Unión flaca es la unión sin considerar los dos valores más extremos.
-
-```{r, echo=FALSE, message = FALSE, warning = FALSE, include=FALSE}
-quantile_tbl <- resultados_int_tbl |> 
-  group_by(num_muestra, opc, tam_muestra, tipo) |> 
-  summarise(LI = quantile(LI, .40), LS = quantile(LS, .60), .groups = "drop") |> 
-  mutate(nombre = "Cuantiles_40_60")
-union_flaca_tbl <- resultados_int_tbl |> 
-  group_by(num_muestra, opc, tam_muestra, tipo) |> 
-  summarise(LI = min(LI[LI- min(LI)>0]), LS = max(LS[max(LS)-LS>0]), .groups = "drop") |> 
-  mutate(nombre = "Unión_flaca")
-
-resultados_int_tbl_2 <- resultados_int_tbl |> 
-  bind_rows(union_tbl) |>
-  bind_rows(quantile_tbl) |>
-  bind_rows(union_flaca_tbl) 
-```
-
-```{r}
-resumen_cobertura_tbl <- resultados_int_tbl_2 |> 
-  left_join(res_computos_tbl) |> 
-  filter(!nombre %in% nombres, opc == "part") |>
-  mutate(cubre = pct_obs <= LS & pct_obs >= LI) |> 
-  group_by(tam_muestra, nombre, tipo, tipo_computo) |> 
-  summarise(cobertura = mean(cubre), error = mean(LS - LI) / 2, .groups = "drop") 
-```
-
-```{r, echo = FALSE}
-ggplot(resumen_cobertura_tbl |> filter(tipo == "muestra-esperado"), 
-       aes(x = cobertura, y = error, colour = nombre, group = nombre)) +
-  geom_point(size = 3) + facet_wrap(tam_muestra~tipo_computo) +
-  geom_hline(yintercept = 1.5, colour = "black") +
-  geom_vline(xintercept = 0.95, colour = "black") +
-  labs(title="Muestra esperado")
-```
-```{r, echo = FALSE}
-ggplot(resumen_cobertura_tbl |> filter(tipo == "muestra-contaminada"), 
-       aes(x = cobertura, y = error, colour = nombre, group = nombre)) +
-  geom_point(size = 3) + facet_wrap(tam_muestra~tipo_computo) +
-  geom_hline(yintercept = 1.5, colour = "black") +
-  geom_vline(xintercept = 0.95, colour = "black") +
-  labs(title="Muestra contaminada")
-```
-
 ## Escenario marco esperado (-3 casillas), eliminando atípicos extremos
 
 ```{r, echo = FALSE, include = FALSE}
@@ -416,7 +385,8 @@ g_1 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |>
        aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
   geom_linerange()  + 
   facet_grid(tam_muestra ~ nombre)  + 
-  scale_color_manual(values = rev(colores_val))
+  scale_color_manual(values = rev(colores_val)) +
+  labs(title="Nulos")
 ```
 
 ```{r, echo = FALSE, include = FALSE}
@@ -426,7 +396,8 @@ g_2 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |>
        aes(x = num_muestra, ymin = LI, ymax = LS, colour = nombre)) +
   geom_linerange()  + 
   facet_grid(tam_muestra  ~ nombre)  + 
-  scale_color_manual(values = rev(colores_val))
+  scale_color_manual(values = rev(colores_val)) +
+  labs(title="Opinión sí")
 ```
 ```{r, echo = FALSE, include = FALSE}
 g_3 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
@@ -435,12 +406,25 @@ g_3 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |>
        aes(x = orden_muestra, ymin = LI, ymax = LS, colour = nombre)) +
   geom_linerange()  + 
   facet_grid(tam_muestra ~ nombre)  + 
-  scale_color_manual(values = rev(colores_val))
+  scale_color_manual(values = rev(colores_val)) +
+  labs(title="Opinión no")
+```
+
+```{r, echo = FALSE, include = FALSE}
+g_4 <- ggplot(resultados_int_tbl |> left_join(orden_muestras_tbl) |> 
+      filter(opc == "part", tipo == "muestra-esperado") |>  
+      semi_join(bind_rows(muestras_1200_fa, muestras_1800_fa)), 
+       aes(x = orden_muestra, ymin = LI, ymax = LS, colour = nombre)) +
+  geom_linerange()  + 
+  facet_grid(tam_muestra ~ nombre)  + 
+  scale_color_manual(values = rev(colores_val)) +
+  labs(title="Participación")
 ```
 
 ```{r, echo = FALSE, fig.height=12, fig.width = 7}
 library(patchwork)
-g_1 / g_2 / g_3
+g_1 / g_2 / g_3 / g_4
 ```
+
 
 
