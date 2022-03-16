@@ -1,0 +1,188 @@
+---
+title: "Pruebas consulta popular"
+author: "M. Anzarut, F. González, T. Ortiz"
+date: "2/12/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(quickcountmx)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+computos_tbl <-
+  read_csv("votacion_simulada_simulacro.csv")  |>
+  mutate(ln = LISTA_NOMINAL) |>
+  mutate(ln = ifelse(ln ==0, 3100, ln)) |> 
+  mutate(x = as.numeric(TIPO_CASILLA=="S")) |> 
+  mutate(id_casilla = row_number()) 
+  
+
+## filtro
+nrow(computos_tbl)
+computos_f_tbl <- computos_tbl 
+nrow(computos_tbl)
+##
+
+resultados_finales <- computos_f_tbl |> 
+  select(CLAVE_CASILLA, all_of(c("se_quede", "se_vaya", "nulo"))) |> 
+  pivot_longer(all_of(c("se_quede", "se_vaya", "nulo"))) |> 
+  group_by(name) |> 
+  summarise(suma = sum(value)) |> 
+  mutate(pct_obs = 100 * suma / sum(suma)) |> 
+  rename(party = name) 
+participacion <- sum(computos_tbl$total_opiniones) / sum(computos_tbl$LISTA_NOMINAL)
+resultados_finales <- resultados_finales |> 
+  bind_rows(tibble(party = "part", suma = sum(computos_tbl$total_opiniones), 
+                   pct_obs = 100 * participacion))
+resultados_finales
+```
+
+## Cobertura BNH
+
+```{r}
+estratos_tbl <- computos_tbl |> group_by(ID_ESTRATO) |> count()
+estratos_tbl
+```
+
+
+```{r}
+num_sims <- 10
+n_rep <- 1
+set.seed(188810)
+muestras <- map_dfr(1:num_sims,  function(num_muestra){
+   muestra <- select_sample_prop(computos_tbl, stratum = ID_ESTRATO, frac = 0.03063*0.85)
+   muestra$num_muestra <- num_muestra
+   muestra
+} )
+```
+
+
+
+```{r, message=FALSE, warning = FALSE, include = FALSE}
+resultados_lst <- parallel::mclapply(1:num_sims, function(n_rep){
+  muestra <- muestras |> filter(num_muestra == n_rep)
+  res <- quickcountmx::hb_estimation(muestra,
+    stratum = ID_ESTRATO, id_station = id_casilla, sampling_frame = computos_tbl, 
+    parties = any_of(c("se_quede", "se_vaya", "nulo")), 
+    covariates = all_of(c("x")),
+    adapt_delta = 0.8, max_treedepth = 10, 
+    num_warmup = 200, num_iter = 200, chains = 4, 
+    model = "consulta", nominal_max = 3100, part = TRUE, prop_obs = 0.90) |> 
+    pluck(1)
+  res$num_muestra <- n_rep
+  res
+}, mc.cores = 2)
+```
+
+
+```{r, message=FALSE, warning = FALSE, include = FALSE}
+resultados_tbl <- bind_rows(resultados_lst)
+```
+
+
+
+```{r}
+write_rds(resultados_tbl, "resultados-nbh-5.rds")
+#resultados_tbl <- read_rds("resultado-nbh-2.rds")
+#resultados_tbl <- read_rds("resultado-nbh.rds")
+#resultados_tbl<- resultados_tbl |> 
+#  mutate(num_muestra = rep(1:250, each = 3))
+```
+
+
+```{r, fig.width = 6, fig.height=3}
+resultados_tbl |> ggplot(aes(x = median)) + geom_histogram() +
+  facet_wrap(~ party, scales = "free_x") +
+  geom_vline(data = resultados_finales, aes(xintercept = pct_obs/100), colour = "red")
+```
+
+
+```{r}
+resultados_tbl |> 
+  ggplot(aes(x = num_muestra, ymin = inf, ymax = sup)) +
+  geom_linerange() +
+  facet_wrap(~ party, scales = "free_y") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs/100), colour = "red")
+
+```
+```{r}
+resultados_tbl |> left_join(resultados_finales) |> 
+  mutate(cubre = ((pct_obs/100) >= inf) & ((pct_obs/100) <= sup)) |> 
+  group_by(party) |>  
+  summarise(cobertura = mean(cubre))
+```
+
+
+```{r, message=FALSE, warning=FALSE, include = FALSE}
+estratos_tbl <- computos_tbl |> count(ID_ESTRATO) |> 
+  mutate(ID_ESTRATO = as.character(ID_ESTRATO))
+resultados_r_tbl <- map_dfr(1:num_sims, function(num){
+  muestra <- muestras |> filter(num_muestra == num) |> 
+    mutate(ID_ESTRATO = as.character(ID_ESTRATO)) |> 
+    rename()
+  res <- quickcountmx::ratio_estimation(muestra,
+    stratum = ID_ESTRATO, data_stratum = estratos_tbl,
+    n_stratum = n,
+    parties = any_of(c("se_quede", "se_vaya", "nulo")))
+  res$num_muestra <- num
+  res
+})
+```
+
+```{r}
+resultados_r_tbl |> 
+  ggplot(aes(x = num_muestra, ymin = prop - 2*std_error, 
+             ymax = prop + 2*std_error)) +
+  geom_linerange() +
+  facet_wrap(~ party, scales = "free_y") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs), colour = "red")
+
+```
+
+
+```{r}
+res_r_2_tbl <- resultados_r_tbl |> 
+  mutate(inf = (prop - 2 * std_error)/100, sup = (prop + 2 * std_error)/100) |>
+  mutate(prop = prop / 100) |> 
+  select(party, prop, num_muestra, inf, sup) |> 
+  mutate(metodo = "razon") 
+res_tbl <- bind_rows(res_r_2_tbl, resultados_tbl |> rename(prop = median) |> 
+                       select(party, prop, num_muestra, inf, sup) |> mutate(metodo = "hbn"))
+```
+
+```{r}
+ggplot(res_tbl |> left_join(resultados_finales), 
+       aes(x = num_muestra, ymin = inf, ymax = sup)) +
+  geom_linerange() +
+  facet_grid(party ~ metodo, scales = "free") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs/100), colour = "red") 
+```
+
+Unión
+
+```{r}
+union_tbl <- res_tbl |> ungroup() |> group_by(party, num_muestra) |> 
+  summarise(inf = min(inf, na.rm = T), sup = max(sup, na.rm = T)) |> ungroup() |> 
+  mutate(metodo = "union")
+res_union_tbl <- bind_rows(union_tbl, res_tbl |> select(-prop))
+```
+
+```{r}
+ggplot(res_union_tbl |> left_join(resultados_finales), 
+       aes(x = num_muestra, ymin = inf, ymax = sup)) +
+  geom_linerange() +
+  facet_grid(party ~ metodo, scales = "free") + 
+  geom_hline(data = resultados_finales, aes(yintercept = pct_obs/100), colour = "red") 
+```
+
+
+```{r}
+res_union_tbl |> left_join(resultados_finales) |> 
+  mutate(cubre = ((pct_obs/100) >= inf) & ((pct_obs/100) <= sup)) |> 
+  group_by(party, metodo) |>  
+  summarise(cobertura = mean(cubre)) |> 
+  arrange(metodo)
+```
